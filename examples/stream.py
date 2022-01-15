@@ -3,12 +3,18 @@ import websocket
 import _thread
 import time
 import json
+import pandas as pd
 
 from enum import Enum
 from typing import Union, Any
 
 
 class EventType(str, Enum):
+    """Message event type. Describes contents of each message.
+    https://docs.kraken.com/websockets/#message-ping
+    Args:
+        Enum (str): 
+    """
     PING = "ping"
     PONG = "pong"
     HEARTBEAT = "heartbeat"
@@ -32,11 +38,22 @@ class EventType(str, Enum):
 
 class AssetPair:
     def __init__(self, pair: str):
+        """Currency pair A/B with base currency A and quote currency B.
+
+        Args:
+            pair (str): currency pair string
+        """
         pieces = pair.split("/")
         self.base = pieces[0]
         self.quote = pieces[1]
 
-class SystemStatus(Enum):
+class SystemStatus(str, Enum):
+    """Status of connection.
+    https://docs.kraken.com/websockets/#message-systemStatus
+
+    Args:
+        Enum (str): connection system status
+    """
     ONLINE = "online"
     MAINTENANCE = "maintenance"
     CANCEL_ONLY = "cancel_only"
@@ -44,7 +61,13 @@ class SystemStatus(Enum):
     POST_ONLY = "post_only"
     default = CANCEL_ONLY
 
-class SubscriptionInterval(Enum):
+class SubscriptionInterval(int, Enum):
+    """Time frame interval in minutes.
+    https://docs.kraken.com/rest/#operation/getOHLCData
+
+    Args:
+        Enum (int): width of OHLC bars
+    """
     X_1MIN  = 1
     X_5MIN  = 5
     X_15MIN = 15
@@ -56,7 +79,12 @@ class SubscriptionInterval(Enum):
     X_15DAY = 21600
     default = X_1MIN
 
-class SubscriptionDepth(Enum):
+class SubscriptionDepth(int, Enum):
+    """Depth associated with book subscription in numbers of levels for each side.
+
+    Args:
+        Enum (int): order book depth. Default DEPTH_10
+    """
     DEPTH_10   = 10
     DEPTH_25   = 25
     DEPTH_100  = 100
@@ -64,7 +92,12 @@ class SubscriptionDepth(Enum):
     DEPTH_1000 = 1000
     default = DEPTH_10
 
-class SubscriptionName(Enum):
+class SubscriptionName(str, Enum):
+    """Name of subscription.
+
+    Args:
+        Enum (str): subscription name
+    """
     BOOK = "book"
     OHLC = "ohlc"
     OPEN_ORDERS = "openOrders"
@@ -75,7 +108,12 @@ class SubscriptionName(Enum):
     ERROR = "error"
     default = ERROR
 
-class SubscriptionStatus(Enum):
+class SubscriptionStatus(str, Enum):
+    """Status of subscription. 
+
+    Args:
+        Enum (str): status of subscription
+    """
     SUBSCRIBED   = "subscribed"
     UNSUBSCRIBED = "unsubscribed"
     ERROR        = "error"
@@ -83,18 +121,32 @@ class SubscriptionStatus(Enum):
 
 class ChannelName:
     def __init__(self, channel_name: str):
+        """Parses channel name string.
+
+        Args:
+            channel_name (str): channel name
+        """
         pieces = channel_name.split('-')
-        self.channel = SubscriptionName(pieces[0])
+        self.event = EventType(pieces[0])
         self.depth = None
         self.interval = None
-        if self.channel == 'ohlc':
-            self.interval = SubscriptionInterval(pieces[1])
-        elif self.channel == 'book':
-            self.depth = SubscriptionDepth(pieces[1])
+        if self.event == 'ohlc':
+            self.interval = SubscriptionInterval(int(pieces[1]))
+        elif self.event == 'book':
+            self.depth = SubscriptionDepth(int(pieces[1]))
 
+    def __repr__(self) -> dict:
+        return json.dumps(self.__dict__)
 class OrderSide(Enum):
+    """Order side.
+
+    Args:
+        Enum (str): orders side
+    """
     BUY = "buy"
     SELL = "sell"
+    ERROR = "error"
+    default = ERROR
 
 class OrderType(Enum):
     MARKET = "market"
@@ -104,6 +156,8 @@ class OrderType(Enum):
     STOP_LOSS_LIMIT = "stop-loss-limit"
     TAKE_PROFIT_LIMIT = "take-profit-limit"
     SETTLE_POSITION = "settle-position"
+    ERROR = "error"
+    default = ERROR
 
 class TimeInForce(Enum):
     GTC = "GCT"
@@ -166,7 +220,131 @@ class SubscribeMessage:
     """
     https://docs.kraken.com/websockets-beta/#message-subscribe
     """
-    def __init__(self, name: SubscriptionName, )
+    def __init__(self, name: SubscriptionName):
+        pass
+
+
+class ArrayMessage:
+    def __init__(self, payload: list):
+        self.pair = AssetPair(payload[-1])
+        self.channel = ChannelName(payload[-2])
+        self._raw = payload[1]
+
+class TickerMessage(ArrayMessage):
+    def __init__(self, payload: list):
+        super().__init__(payload)
+
+        self.ask = {
+            "price": float(self._raw['a'][0]),
+            "wholeLotVolume": int(self._raw['a'][1]),
+            "lotVolume": float(self._raw['a'][2])
+        }
+
+        self.bid = {
+            "price": float(self._raw['b'][0]),
+            "wholeLotVolume": int(self._raw['b'][1]),
+            "lotVolume": float(self._raw['b'][2])
+        }
+
+        self.open = {
+            "today": float(self._raw['o'][0]),
+            "last24Hours": float(self._raw['o'][1])
+        }
+
+        self.high = {
+            "today": float(self._raw['h'][0]),
+            "last24Hours": float(self._raw['h'][1])
+        }
+
+        self.low = {
+            "today": float(self._raw['l'][0]),
+            "last24Hours": float(self._raw['l'][1])
+        }
+
+        self.close = {
+            "price": float(self._raw['c'][0]),
+            "lotVolume": float(self._raw['c'][1])
+        }
+
+        self.volume = {
+            "today": float(self._raw['v'][0]),
+            "last24Hours": float(self._raw['v'][1])
+        }
+
+        # Number of trades
+        self.trades = {
+            "today": float(self._raw['t'][0]),
+            "last24Hours": float(self._raw['t'][1])
+        }
+
+        # Volume weighted average price
+        self.vwap = {
+            "today": float(self._raw['p'][0]),
+            "last24Hours": float(self._raw['p'][1])
+        }
+
+class OHLCMessage(ArrayMessage):
+    def __init__(self, payload: list):
+        super().__init__(payload)
+        self.start_time = pd.to_datetime(float(self._raw[0]), unit='s')
+        self.end_time = pd.to_datetime(float(self._raw[1]), unit='s')
+        self.open = float(self._raw[2])
+        self.high = float(self._raw[3])
+        self.low = float(self._raw[4])
+        self.close = float(self._raw[5])
+        self.vwap = float(self._raw[6])
+        self.volume = float(self._raw[7])
+        self.count = int(self._raw[8])
+
+class TradeMessage(ArrayMessage):
+    def __init__(self, payload: list):
+        super().__init__(payload)
+        self.price = float(self._raw[0])
+        self.price = float(self._raw[1])
+        self.time = pd.to_datetime(float(self._raw[2]), unit='s')
+        self.side = OrderSide.BUY if self._raw[3].startswith('b') else OrderSide.SELL
+        order_type = self._raw[4]
+        if order_type.startswith('m'):
+            self.order_type = OrderType.MARKET
+        elif order_type.startswith('l'):
+            self.order_type = OrderType.LIMIT
+        else:
+            self.order_type = OrderType.ERROR
+        print()
+
+def parse_message2(msg: str):
+    try:
+        d = json.loads(msg)
+        if isinstance(d, dict):
+            event = EventType(d['event'])
+            if event == EventType.PONG:
+                pass
+            elif event == EventType.HEARTBEAT:
+                pass
+            elif event == EventType.SYSTEM_STATUS:
+                pass
+            elif event == EventType.SUBSCRIPTION_STATUS:
+                pass
+            else:
+                pass
+        elif isinstance(d, list):
+            channel = ChannelName(d[-2])
+            event = channel.event
+            if event == EventType.TICKER:
+                TickerMessage(d)
+            elif event == EventType.OHLC:
+                ohlc = OHLCMessage(d)
+            elif event == EventType.TRADE:
+                trade = TradeMessage(d)
+                print(trade.__dict__)
+            elif event == EventType.SPREAD:
+                pass
+            elif event == EventType.BOOK:
+                pass
+        else:
+            pass
+    except Exception as e:
+        print(e)
 
 
 def parse_message(msg: str) -> dict:
@@ -178,6 +356,7 @@ def parse_message(msg: str) -> dict:
                 sub_status = sm.status
                 print()
         else:
+
             payload = d[1]
             out = {'channel': d[-2],
                    'pair': d[-1]}
@@ -227,12 +406,13 @@ def parse_spread(payload: list) -> dict:
 
 # Define WebSocket callback functions
 def ws_message(ws, message):
-    msg = parse_message(message)
+    msg = parse_message2(message)
     if 'event' not in msg.keys():
         print("WebSocket thread: %s" % msg)
 
 def ws_open(ws):
-    ws.send('{"event":"subscribe", "subscription":{"name":"ohlc"}, "pair":["BTC/USD","DOGE/USD"]}')
+    ws.send('{"event":"subscribe", "subscription":{"name":"ohlc", "interval": 5}, "pair":["BTC/USD","DOGE/USD"]}')
+    ws.send('{"event":"subscribe", "subscription":{"name":"book"}, "pair":["BTC/USD","DOGE/USD"]}')
     ws.send('{"event":"subscribe", "subscription":{"name":"trade"}, "pair":["BTC/USD","DOGE/USD"]}')
 
 def ws_thread(ws):
